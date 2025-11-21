@@ -4,11 +4,17 @@ import { createLogger } from '../../utils/logger.mjs'
 
 const logger = createLogger('auth')
 
-const jwksUrl = 'https://test-endpoint.auth0.com/.well-known/jwks.json'
+// TODO: Provide a URL that can be used to download a certificate that can be used
+//       to verify JWT token signature.
+const jwksUrl = 'https://dev-xefkydzjxcypqpel.us.auth0.com/api/v2/np'
 
 export async function handler(event) {
   try {
+    logger.info("Authorizing user", event.authorizationToken)
+
     const jwtToken = await verifyToken(event.authorizationToken)
+
+    logger.info("User was authorized", jwtToken)
 
     return {
       principalId: jwtToken.sub,
@@ -24,7 +30,7 @@ export async function handler(event) {
       }
     }
   } catch (e) {
-    logger.error('User not authorized', { error: e.message })
+    logger.error("User not authorized", { error: e.message })
 
     return {
       principalId: 'user',
@@ -47,7 +53,30 @@ async function verifyToken(authHeader) {
   const jwt = jsonwebtoken.decode(token, { complete: true })
 
   // TODO: Implement token verification
-  return undefined;
+  
+
+  if (!jwt) throw new Error("Invalid JWT token")
+
+  // 1) Download JWKS keys
+  const jwksResponse = await Axios.get(jwksUrl)
+  const keys = jwksResponse.data.keys
+
+  const signingKey = keys.find(key => key.kid === jwt.header.kid)
+  if (!signingKey) throw new Error("No matching signing key found")
+
+  // 2) Convert x5c cert to PEM format
+  const cert = buildCert(signingKey.x5c[0])
+
+  // 3) Verify token signature
+  const verifiedToken = jsonwebtoken.verify(token, cert, {
+    algorithms: ['RS256']
+  })
+
+  return verifiedToken
+}
+
+function buildCert(cert) {
+  return `-----BEGIN CERTIFICATE-----\n${cert}\n-----END CERTIFICATE-----`
 }
 
 function getToken(authHeader) {

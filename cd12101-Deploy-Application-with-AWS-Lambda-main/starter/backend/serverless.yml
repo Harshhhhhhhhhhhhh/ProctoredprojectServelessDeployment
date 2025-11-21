@@ -8,30 +8,20 @@ frameworkVersion: '3'
 provider:
   name: aws
   runtime: nodejs14.x
+  stage: dev
+  region: us-east-1
 
-  stage:${opt:stage, 'dev'}
-  region:${opt:region,  'us-east-1'}
-
-  tracing:
-   lambda: true
-   apiGateway: true
-
-  enviroment:
-   TODOS_TABLE: Todos-${self:provider.stage}
-   TODOS_CREATED_AT_INDEX:CreatedAtIndex
-   AttACHMENt_S3_BUCKET: serverless-todo-image-${self:provider.stage}
-   SIGNED_URL_EXPIRATION: 300
-
-  logs:
-   restApi: true 
- 
+  environment:
+    TODOS_TABLE: Todos-${self:provider.stage}
+    TODOS_CREATED_AT_INDEX: CreatedAtIndex
+    ATTACHMENTS_S3_BUCKET: serverless-todo-app-images-${self:provider.stage}
+    SIGNED_URL_EXPIRATION: 300
 
 functions:
 
   Auth:
     handler: src/lambda/auth/auth0Authorizer.handler
 
-  # TODO: Configure this function
   GetTodos:
     handler: src/lambda/http/getTodos.handler
     events:
@@ -43,12 +33,11 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-         - dynamodb:Query
-        Resources:
-         - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.enviroment.TODOS_TABLE} 
-         - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.enviroment.TODOS_TABLE}/index/${self:provider.enviroment.TODOS_CREATED_AT_INDEX}
+          - dynamodb:Query
+        Resource:
+          - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+          - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}/index/${self:provider.environment.TODOS_CREATED_AT_INDEX}
 
-  # TODO: Configure this function
   CreateTodo:
     handler: src/lambda/http/createTodo.handler
     events:
@@ -58,15 +47,14 @@ functions:
           cors: true
           authorizer: Auth
           request:
-           schemas:
-            application/json:${file(models/created-todo-model.json)}
+            schemas:
+              application/json: ${file(src/models/create-todo-model.json)}
     iamRoleStatements:
-     - Effect: Allow
-       Action:
-        - dynamodb:PutItem
-       Resource:
-        - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.enviroment.TODOS_TABLE}    
-  # TODO: Configure this function
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+
   UpdateTodo:
     handler: src/lambda/http/updateTodo.handler
     events:
@@ -74,18 +62,16 @@ functions:
           method: patch
           path: todos/{todoId}
           cors: true
+          authorizer: Auth
           request:
-           schemas:
-            application/json:${file(models/created-todo-model.json)}
+            schemas:
+              application/json: ${file(src/models/update-todo-model.json)}
     iamRoleStatements:
-     - Effect: Allow
-       Action:
-        - dynamodb:UpdateItem    
-       Resource:
-        - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.enviroment.TODOS_TABLE}      
-            
+      - Effect: Allow
+        Action:
+          - dynamodb:UpdateItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
 
-  # TODO: Configure this function
   DeleteTodo:
     handler: src/lambda/http/deleteTodo.handler
     events:
@@ -97,12 +83,9 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-         - dynamodb:DeleteItem    
-        Resource:
-         - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.enviroment.TODOS_TABLE}      
-                  
+          - dynamodb:DeleteItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
 
-  # TODO: Configure this function
   GenerateUploadUrl:
     handler: src/lambda/http/generateUploadUrl.handler
     events:
@@ -114,90 +97,72 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-         - dynamodb:UpdateItem    
-        Resource:
-         - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.enviroment.TODOS_TABLE}      
-      - Effect: Allow
-        Action:
-         - s3:PutObject    
-        Resource:
-         - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.enviroment.TODOS_TABLE}               
-
-
+          - s3:PutObject
+        Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_S3_BUCKET}/*
 
 resources:
   Resources:
-    # TODO: Add any necessary AWS resources
-    GatewayResponseDefault4xx:
-     Type: AWS:APIGATEWAY::GatewayResponseDefault4XX
-     Properties:
-      ResponseType: Default_4XX
-      RestApiId:
-       Ref:ApiGatewayRestApi
-      ResponseParameters:
-       gatewayresponse.header.Acess-Control_Allow-Origin: "*"
-       gatewayresponse.header.Acess-Control_Allow-Headers: "*"
-      ResponseTemplates:
-       application/json: '{"messge:$contex.error.messageString"}'
 
-  TodosTable:
-   Type: AWS::dynamoDb::table
-   Properties:
-    TableName: ${self::provider.enviroment.TODOS_TABLE}
-    AttrributeDefinitions:
-     - AttributeName: userId
-       AttributeType: S
-     - AttributeName: todoId
-       AttributeType: S
-     - AttributeName: createdAt
-       AttributeType: S
-    KeySchema:
-     - AttributeName: userId
-       keyType: HASH
-     - AttributeName: todoId
-       keyType: RANGE
-    LocalSecondaryIndexes:
-     - IndexName: ${self::provider.enviroment.TODOS_CREATED_AT_INDEX}
-       KeySchema:
-        - AttributeName: userId
-          keyType: HASH
-        - AttributeName: todoId
-          keyType: RANGE  
-       Projection:
-        ProjectionType: ALL 
-    BillingMode: PAY_PER_REQUEST
+    GatewayResponseDefault4XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseType: DEFAULT_4XX
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        ResponseTemplates:
+          application/json: '{"message":$context.error.messageString}'
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
 
-  AttachmentsBucket:
-   Type: AWS::S3::AttachmentsBucket
-   Properties:
-    BucketName: ${self::provider.enviroment.AttACHMENt_S3_BUCKET}
-    CorsConfiguration:
-     CorsRules:
-      - AllowedOrigins:
-         - '*'
-        AllowedHeaders:
-         - '*'
-        AllowedMethods:
-         - Get 
-         - Put 
-         - Post 
-         - Delete 
-         - Head
-        MaxAge: 3000    
-  
-  BucketPolicy:
-   Type: AWS::S3::BucketPolicy
-   Properties:
-    Bucket: !Ref AttachmentsBucket
-    policyDocument:
-     Version: '2012-10-17'
-     Statements:
-      - Sid: PublicReadGetobjects
-        Effects: Allow
-        Principal: '*'
-        Action:
-         - s3:GetObject 
-        Resource: ${self::provider.enviroment.AttACHMENt_S3_BUCKET}
+    TodosTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TODOS_TABLE}
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: todoId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: todoId
+            KeyType: RANGE
+        LocalSecondaryIndexes:
+          - IndexName: ${self:provider.environment.TODOS_CREATED_AT_INDEX}
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
 
-plugins:
- - serverless-webpack
+    AttachmentsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.ATTACHMENTS_S3_BUCKET}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins: ['*']
+              AllowedHeaders: ['*']
+              AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+              MaxAge: 3000
+
+    BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref AttachmentsBucket
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal: '*'
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_S3_BUCKET}/*
